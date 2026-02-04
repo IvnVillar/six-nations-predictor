@@ -201,6 +201,10 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Six Nations predictor - generated files
+match_ready_squads.csv
+
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
