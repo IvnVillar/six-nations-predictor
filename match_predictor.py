@@ -174,14 +174,15 @@ if __name__ == "__main__":
 
     print("\nSIX NATIONS MATCH PREDICTION\n")
     
-    # Detect available teams
     teams_available = df['country'].unique()
-    
-    if "France" in teams_available and "Ireland" in teams_available:
-        matches = [("France", "Ireland")]
-    else:
-        print(f"WARNING: Teams found: {teams_available}")
+    print(f"Teams found in CSV: {teams_available}")
+
+    if len(teams_available) != 2:
+        print(f"ERROR: Expected exactly 2 teams in CSV, found {len(teams_available)}: {teams_available}")
         exit()
+
+    home, away = teams_available[0], teams_available[1]
+    matches = [(home, away)]
 
     for h, a in matches:
         res = simulate_match(h, a, df)
