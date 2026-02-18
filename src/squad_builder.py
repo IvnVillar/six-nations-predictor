@@ -3,8 +3,8 @@ import numpy as np
 import os
 
 # File names
-DB_FILE = "six_nations_squads_FINAL.csv"
-MATCH_FILE = "England-Wales.xlsx"  
+DB_FILE = "data/six_nations_squads_FINAL.csv"
+MATCH_FILE = "data/England-Wales.xlsx"  
 OUTPUT_FILE = "match_ready_squads.csv"
 
 
