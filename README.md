@@ -1,37 +1,48 @@
-
-# Six Nations Match Predictor - Hybrid Model (Tactical + ELO)
+# Six Nations Match Predictor — Hybrid Model (Tactical + ELO)
 
 A rugby match prediction system that combines tactical squad analysis with World Rugby ELO rankings to forecast Six Nations match outcomes.
 
 ## Overview
 
-This project focuses on a single fixture (France vs Ireland) as a working prototype of a broader Six Nations prediction engine. It uses:
+This project predicts Six Nations fixtures using a hybrid model that blends two complementary signals:
 
-- Tactical squad strength, derived from a player skill database
-- World Rugby style ELO rankings for each national team
-- A hybrid model that blends tactical and ELO components
-- Differentiation between starting XV and bench impact
+- **Tactical squad strength** — derived from a player skill database, split across pack, control (halfbacks), and strike (backs)
+- **World Rugby ELO ratings** — historical team strength over time
+- **Starting XV vs bench differentiation** — bench impact weighted at 20%
+- **Physical mismatch detection** — continuous pack dominance bonus
 
-Hyperparameter tuning and full backtesting are planned but not finalized. For now, the focus is on a clean, reproducible pipeline and a transparent model structure.
+Hyperparameter tuning is supported via a built-in grid search module backtested against real results.
 
 ---
 
 ## Project Structure
 
-Suggested simple layout (everything in the repo root):
-
 ```
 six-nations-predictor/
-├── six_nations_squads_FINAL.csv      # Player database (skills, positions, country)
-├── France-Ireland.xlsx               # Matchday 23: France vs Ireland lineup
-├── prepare_match.py                  # Script 1: builds match_ready_squads.csv
-├── match_predictor.py                # Script 2: runs the hybrid prediction
-├── match_ready_squads.csv            # Generated intermediate file (not committed)
-├── requirements.txt                  # Python dependencies
-└── .gitignore                        # Git ignore rules
+│
+├── data/
+│   ├── six_nations_squads_FINAL.csv    # Player database (skills, positions, clubs)
+│   ├── England-Wales.xlsx              # Matchday squads (one file per fixture)
+│   ├── France-Ireland.xlsx
+│   ├── Ireland-Italy.xlsx
+│   ├── Italy-Scotland.xlsx
+│   ├── Scotland-England.xlsx
+│   └── Wales-France.xlsx
+│
+├── src/
+│   ├── config.py                       # Central config: paths, ELO ratings, hyperparameters
+│   ├── squad_builder.py                # Builds match_ready_squads.csv from a fixture file
+│   ├── match_predictor.py              # Runs the hybrid prediction model
+│   ├── optimize_params.py             # Grid search over model hyperparameters
+│   └── generate_dashboard.py          # Generates dashboard.html from live match data
+│
+├── match_ready_squads.csv              # ⚡ Generated — not committed
+├── optimization_results.csv           # ⚡ Generated — not committed
+├── dashboard.html                      # ⚡ Generated — not committed
+├── .gitignore
+├── LICENSE
+└── README.md
 ```
-
-You can later move to a `data/` and `src/` layout if the project grows.
 
 ---
 
@@ -42,7 +53,7 @@ You can later move to a `data/` and `src/` layout if the project grows.
 git clone https://github.com/yourusername/six-nations-predictor.git
 cd six-nations-predictor
 
-# Create and activate a virtual environment (optional but recommended)
+# Create and activate a virtual environment (recommended)
 python -m venv .venv
 source .venv/bin/activate        # Linux/Mac
 # .venv\Scripts\activate         # Windows
@@ -66,96 +77,64 @@ scikit-learn>=0.22.0
 
 ### Player database
 
-`six_nations_squads_FINAL.csv` contains:
+`data/six_nations_squads_FINAL.csv` contains:
 
-- `country`: national team (France, Ireland, etc.)
-- `name`: player name
-- `position_group`: Forwards or Backs
-- `skill`: numeric rating (approximate ability)
-- Additional metadata (club, league, rank, role, status)
+- `country` — national team (France, Ireland, etc.)
+- `name` — player name
+- `position_group` — Forwards or Backs
+- `club` — current club
+- `league_tier` — PREM, TOP14, URC_A, or URC_B
+- `rank_top100` — World Rugby top 100 ranking (if applicable)
+- `skill` — numeric rating derived from ranking or league tier
+- `role` — SPINE (key player) or STD
+- `status` — SQUAD
 
-This file acts as the core source of player-level strength.
+Player skill is assigned as follows:
+1. If the player appears in the World Rugby top 100, skill is calculated from their ranking position
+2. Otherwise, a fallback is applied based on their club's league tier: PREM → 76, TOP14 → 78, URC_A → 77, URC_B → 71
 
-### Match lineup
+### Match lineup files
 
-`France-Ireland.xlsx` contains:
+Each `data/<Home>-<Away>.xlsx` file contains:
 
-- `Number`: shirt number (1–23)
-- `France`: player names for France
-- `Ireland`: player names for Ireland
+- `Number` — shirt number (1–23)
+- `<Home team>` — player names for the home side
+- `<Away team>` — player names for the away side
 
-It represents the matchday 23 (starting XV + bench) for each team.
+The filename determines home/away assignment — the first team named is always home.
 
 ---
 
 ## Pipeline
 
-### 1. Squad preparation
-
-Run:
+### Step 1 — Build match squads
 
 ```bash
-python prepare_match.py
+python src/squad_builder.py France-Ireland.xlsx
 ```
 
 This script:
-
-- Loads `six_nations_squads_FINAL.csv`
-- Loads `France-Ireland.xlsx`
-- Matches player names to the database, with:
-  - Normalized name matching (case and whitespace)
-  - Partial matching fallback for minor differences
-  - Country-specific fallback skill if a player is missing
-- Tags:
-  - `starting`: 1 for shirt numbers 1–15, 0 for 16–23
-  - `shirt_number`: jersey number
-- Performs basic validation:
-  - Checks that each team has exactly 15 starters
-  - Detects duplicate shirt numbers per country
+- Loads the player database and the specified fixture file
+- Matches player names using a three-level lookup: exact → partial → initial + surname
+- Falls back to a league-tier skill for players not found in the database
+- Tags players as starting (shirt 1–15) or bench (16–23)
+- Validates that each team has exactly 15 starters and no duplicate shirt numbers
 - Writes `match_ready_squads.csv`
 
-Output schema:
-
-- `country`
-- `name`
-- `position_group` (Forwards / Backs)
-- `skill`
-- `starting` (1 = starting XV, 0 = bench)
-- `shirt_number`
-
-### 2. Match prediction
-
-Run:
+### Step 2 — Run prediction
 
 ```bash
-python match_predictor.py
+python src/match_predictor.py France-Ireland.xlsx
 ```
 
 This script:
-
 1. Loads `match_ready_squads.csv`
-2. Computes tactical metrics:
-   - Pack strength (Forwards)
-   - Control (halfbacks, 9–10 when identifiable)
-   - Strike (backs excluding halfbacks)
-   - Separate scores for:
-     - Starting XV
-     - Bench
-   - Aggregates into a single tactical score:
-     - Starting XV weight: 80%
-     - Bench weight: 20%
-3. Computes an ELO-based margin using predefined ratings
-4. Combines tactical margin and ELO margin in a hybrid model:
-   - Tactical weight: 0.65
-   - ELO weight: 0.35
-   - Adds a fixed home advantage
-5. Converts final margin into a win probability using a normal CDF
-6. Prints:
-   - Predicted winner
-   - Expected margin (points)
-   - Win probability
-   - Tactical vs ELO breakdown
-   - Pack mismatch alerts (if physical gap exceeds a threshold)
+2. Computes tactical metrics per team (pack, control, strike) for starters and bench
+3. Computes an ELO-based margin from current World Rugby ratings
+4. Fuses tactical and ELO margins using configurable weights
+5. Adds home advantage
+6. Converts the final margin to a win probability via normal CDF
+7. Prints the predicted winner, margin, probability, and breakdown
 
 ---
 
@@ -163,152 +142,143 @@ This script:
 
 ### Tactical component
 
-For each team, the model computes three unit scores:
+Three unit scores are computed per team:
 
-- Pack: average skill of all forwards
-- Control: average skill of halfbacks (9–10 where identifiable)
-- Strike: average skill of remaining backs
+| Unit | Players | Default weight |
+|------|---------|---------------|
+| Pack | All forwards | 40% |
+| Control | Halfbacks (shirt 9–10) | 35% |
+| Strike | Remaining backs | 25% |
 
-These are combined with weights:
+Starting XV and bench are scored separately, then combined:
 
-- `WEIGHT_PACK = 0.45`
-- `WEIGHT_CONTROL = 0.35`
-- `WEIGHT_STRIKE = 0.20`
+```
+TOTAL_TACTICAL = STARTERS × 0.80 + BENCH × 0.20
+TACTICAL_MARGIN = (HOME - AWAY) × TACTICAL_SCALING_FACTOR (0.85)
+```
 
-Then the model computes:
-
-- Starting XV score
-- Bench score
-
-and combines them as:
-
-- `TOTAL_TACTICAL = STARTERS * 0.80 + BENCH * 0.20`
-
-Finally:
-
-- `TACTICAL_MARGIN = (TOTAL_TACTICAL_HOME - TOTAL_TACTICAL_AWAY) * TACTICAL_SCALING_FACTOR`
-
-with `TACTICAL_SCALING_FACTOR = 0.85`.
-
-A physical mismatch bonus is added if the pack strength difference exceeds a threshold:
-
-- `MISMATCH_THRESHOLD = 4.0`
-- `MISMATCH_BONUS = 5.0` points
+A continuous physical mismatch bonus is added when pack difference exceeds a threshold — linearly ramped up to a maximum of 5 points (no abrupt step).
 
 ### ELO component
 
-Uses a simple transformation of World Rugby-style ratings:
+```
+ELO_MARGIN = (ELO_HOME - ELO_AWAY) × ELO_SCALING (0.70)
+```
 
-- `ELO_MARGIN = (ELO_HOME - ELO_AWAY) * ELO_SCALING`
+ELO ratings are defined in `src/config.py` and should be updated before each tournament.
 
-with:
+### Hybrid fusion
 
-- `ELO_SCALING = 0.7`
+```
+FINAL_MARGIN = TACTICAL_MARGIN × 0.50 + ELO_MARGIN × 0.50 + HOME_ADVANTAGE (5.0)
+P(home win) = Φ(FINAL_MARGIN / STD_DEV)
+```
 
-### Hybrid margin and probability
+Weights above reflect the optimised configuration from grid search over the 2025 Six Nations (rounds 1–2). All parameters can be tuned in `src/config.py`.
 
-The final predicted margin is:
+---
 
-- `FINAL_MARGIN = TACTICAL_MARGIN * WEIGHT_MODEL_TACTICAL + ELO_MARGIN * WEIGHT_MODEL_ELO + HOME_ADVANTAGE`
+## Dashboard
 
-with:
+```bash
+python src/generate_dashboard.py
+```
 
-- `HOME_ADVANTAGE = 2.0`
-- `WEIGHT_MODEL_TACTICAL = 0.65`
-- `WEIGHT_MODEL_ELO = 0.35`
+Generates `dashboard.html` — a self-contained visual report showing:
 
-Win probability for the home team is:
+- **Backtesting chart** — predicted vs actual margin for every match, with winner correctness badges
+- **Team strength ranking** — switchable between ELO, Pack, Control, and Strike metrics
+- **Model performance KPIs** — accuracy, RMSE, MAE, and current parameter settings
 
-- `P(home win) = Φ(FINAL_MARGIN / STD_DEV)`
+The dashboard is also regenerated automatically at the end of every `optimize_params.py` run, using the best parameters found in that session. Open `dashboard.html` in any browser — no server required.
 
-using a normal CDF with:
+> `dashboard.html` is listed in `.gitignore` and should not be committed. Regenerate it locally whenever needed.
 
-- `STD_DEV = 13.5` points
+---
+
+## Hyperparameter Optimisation
+
+```bash
+python src/optimize_params.py
+```
+
+Runs a grid search over `tactical_weight` and `home_advantage` against real Six Nations results defined in `REAL_RESULTS`. Outputs:
+
+- Top 10 configurations by RMSE
+- Best configuration with full metrics (RMSE, MAE, accuracy)
+- Comparison against current default parameters
+- `optimization_results.csv` with all evaluated combinations
+
+Current best (2025, rounds 1–2): **6/6 correct winners**, RMSE 20.6 pts.
 
 ---
 
 ## Example Output
 
-Example console output for France vs Ireland:
-
-```text
-Data loaded: match_ready_squads.csv (46 records)
-
+```
 SIX NATIONS MATCH PREDICTION
-
-Match: France vs Ireland
-Predicted Winner: IRELAND
-Predicted Margin: 3.2 points
-Win Probability: 62.4%
+============================================================
+Match:             France vs Ireland
+Predicted Winner:  IRELAND
+Predicted Margin:  3.2 points
+Win Probability:   62.4%
 
 Breakdown:
-Tactical Advantage (Squad): +1.8 points
-Historical Advantage (ELO): -0.5 points
-ALERT: Ireland has critical physical advantage in the pack.
+  Tactical Advantage (Squad): +1.8 pts
+  Historical Advantage (ELO): -0.5 pts
+  Pack mismatch bonus (Ireland): +2.1 pts
 ------------------------------------------------------------
 ```
 
-Values are illustrative; actual numbers depend on the player database and lineup.
-
 ---
 
-## Hyperparameter Tuning (Work in Progress)
+## Configuration
 
-There is an ongoing effort to:
+All model parameters live in `src/config.py`:
 
-- Use Six Nations historical data (2023–2025) for backtesting
-- Evaluate RMSE, MAE, and match outcome accuracy
-- Tune:
-  - Tactical vs ELO weights
-  - Pack/Control/Strike weights
-  - Home advantage
-  - Mismatch thresholds and bonuses
+```python
+WR_ELO = { "Ireland": 87.97, "France": 87.24, ... }  # Update before each tournament
 
-For now, parameters are based on rugby domain heuristics rather than fully optimized.
-
----
-
-## Limitations
-
-- Current public version is calibrated around a single fixture (France vs Ireland).
-- Player skills are an abstract rating, not derived from a formal model in this repository.
-- Hyperparameter tuning and cross-validation are not yet integrated.
-- Squads for past seasons are not automatically reconstructed.
-
----
-
-## Requirements
-
-- Python 3.7+
-- pandas 1.0.0+
-- numpy 1.18.0+
-- openpyxl 3.0.0+
-- scikit-learn 0.22.0+
-
-Install via:
-
-```bash
-pip install -r requirements.txt
+DEFAULT_CONFIG = {
+    "HOME_ADVANTAGE":          5.0,
+    "WEIGHT_MODEL_TACTICAL":   0.50,
+    "WEIGHT_MODEL_ELO":        0.50,
+    ...
+}
 ```
 
 ---
 
 ## Roadmap
 
-Short term:
+**Short term**
+- Extend backtesting to full 2023–2025 Six Nations data
+- Add unit tests for core functions (name matching, metrics, tactical scoring)
+- Log predictions and errors per match for longitudinal analysis
 
-- Add a backtesting module against 2023–2025 results
-- Introduce a simple hyperparameter search over a small, meaningful grid
-- Log predictions and errors per match for analysis
+**Medium term**
+- CLI flags to specify fixture, config overrides, and output path
+- Visualisations: margin distributions, calibration curves, ELO evolution
+- Expand to other international tournaments (Autumn Nations, Rugby Championship)
 
-Medium term:
+---
 
-- Generalize to all Six Nations fixtures
-- Parameterize input paths and teams from the command line
-- Add plotting utilities for margin distributions and calibration
+## Limitations
+
+- Player skills are an abstract rating, not derived from match performance data
+- Hyperparameter tuning is based on a small sample (6 matches)
+- Squad data for past seasons is not automatically reconstructed
+- Model does not account for injuries, weather, or referee tendencies
+
+---
+
+## Requirements
+
+- Python 3.10+
+- pandas, numpy, openpyxl, scikit-learn
 
 ---
 
 ## License
 
-This project is released under the MIT License. See the `LICENSE` file for details.
+MIT License — see `LICENSE` for details.
