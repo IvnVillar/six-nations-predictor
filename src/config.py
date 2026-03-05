@@ -31,12 +31,12 @@ WR_ELO = {
 # ── Model Hyperparameters ──────────────────────────────────────────────────────
 DEFAULT_CONFIG = {
     # Environmental
-    "HOME_ADVANTAGE":         2.0,
+    "HOME_ADVANTAGE":         5.0,
     "STD_DEV":               13.5,
 
     # Hybrid model weights  (must sum to 1.0)
-    "WEIGHT_MODEL_TACTICAL":  0.65,
-    "WEIGHT_MODEL_ELO":       0.35,
+    "WEIGHT_MODEL_TACTICAL":  0.50,
+    "WEIGHT_MODEL_ELO":       0.50,
 
     # Tactical unit weights  (must sum to 1.0)
     "WEIGHT_PACK":            0.40,
