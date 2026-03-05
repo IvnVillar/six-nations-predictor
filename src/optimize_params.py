@@ -13,7 +13,7 @@ from config import DEFAULT_CONFIG
 from match_predictor import simulate_match
 from squad_builder import build_match_squads
 
-# ── Ground truth ───────────────────────────────────────────────────────────────
+#  Ground truth 
 
 REAL_RESULTS = [
     {"home": "France",   "away": "Ireland",  "home_score": 36, "away_score": 14, "match_file": "France-Ireland.xlsx"},
@@ -25,7 +25,7 @@ REAL_RESULTS = [
 ]
 
 
-# ── Metrics ────────────────────────────────────────────────────────────────────
+#  Metrics 
 
 def calculate_metrics(predictions: list[dict], real_results: list[dict]) -> dict:
     """
@@ -73,7 +73,7 @@ def calculate_metrics(predictions: list[dict], real_results: list[dict]) -> dict
     }
 
 
-# ── Evaluation ─────────────────────────────────────────────────────────────────
+#  Evaluation 
 
 def evaluate_params(tactical_weight: float, home_advantage: float) -> dict | None:
     """
@@ -102,7 +102,7 @@ def evaluate_params(tactical_weight: float, home_advantage: float) -> dict | Non
     return calculate_metrics(predictions, REAL_RESULTS)
 
 
-# ── Grid search ────────────────────────────────────────────────────────────────
+#  Grid search 
 
 def grid_search() -> tuple[dict, pd.DataFrame]:
     """
@@ -155,7 +155,7 @@ def grid_search() -> tuple[dict, pd.DataFrame]:
 
     results_df = pd.DataFrame(results).sort_values("rmse")
 
-    # ── Report ─────────────────────────────────────────────────────────────────
+    #  Report 
     print("\n" + "=" * 70)
     print("TOP 10 CONFIGURATIONS BY RMSE\n")
     pd.set_option("display.max_columns", None)
@@ -196,12 +196,25 @@ def grid_search() -> tuple[dict, pd.DataFrame]:
     output_csv = "optimization_results.csv"
     results_df.to_csv(output_csv, index=False)
     print(f"\nResults saved to: {output_csv}")
+
+    # Apply best params and regenerate dashboard
+    DEFAULT_CONFIG["WEIGHT_MODEL_TACTICAL"] = best_params["tactical_weight"]
+    DEFAULT_CONFIG["WEIGHT_MODEL_ELO"]      = best_params["elo_weight"]
+    DEFAULT_CONFIG["HOME_ADVANTAGE"]        = best_params["home_advantage"]
+
+    print("\nGenerating dashboard with optimised parameters...")
+    try:
+        from generate_dashboard import generate
+        generate()
+    except Exception as exc:
+        print(f"Warning: dashboard generation failed: {exc}")
+
     print("=" * 70 + "\n")
 
     return best_params, results_df
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+#  Entry point 
 
 if __name__ == "__main__":
     try:
