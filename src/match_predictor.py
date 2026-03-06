@@ -6,15 +6,16 @@ Usage:
     python match_predictor.py France-Ireland.xlsx    # derive home/away from filename
 """
 
+import os
 import sys
 import math
 import pandas as pd
 
-from config import DEFAULT_CONFIG, WR_ELO
+from config import DEFAULT_CONFIG, WR_ELO, OUTPUT_DIR
 from squad_builder import get_teams_from_filename
 
 
-#  Tactical calculation helpers 
+# ── Tactical calculation helpers ───────────────────────────────────────────────
 
 def _unit_average(players: pd.DataFrame, unit: str, params: dict) -> float:
     """
@@ -120,7 +121,7 @@ def _mismatch_bonus(pack_diff: float, params: dict) -> float:
     return bonus if pack_diff > 0 else -bonus
 
 
-#  Main simulation 
+# ── Main simulation ────────────────────────────────────────────────────────────
 
 def simulate_match(
     home: str,
@@ -226,7 +227,7 @@ def print_result(res: dict, params: dict) -> None:
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    INPUT_FILE = "match_ready_squads.csv"
+    INPUT_FILE = os.path.join(OUTPUT_DIR, "match_ready_squads.csv")
 
     try:
         df = pd.read_csv(INPUT_FILE)
