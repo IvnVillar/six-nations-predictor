@@ -10,7 +10,7 @@ import os
 import sys
 import pandas as pd
 
-from config import DB_FILE, OUTPUT_DIR, match_file_path
+from config import DB_FILE, OUTPUT_DIR, match_file_path, HISTORICAL_DIR
 
 # Default match file (can be overridden via CLI argument)
 DEFAULT_MATCH_FILE = "France-Ireland.xlsx"
@@ -116,7 +116,7 @@ def get_country_fallback_skill(country: str, db_df: pd.DataFrame) -> float:
 
 # ── Core processing ────────────────────────────────────────────────────────────
 
-def build_match_squads(match_filename: str) -> pd.DataFrame:
+def build_match_squads(match_filename: str, season: str = None) -> pd.DataFrame:
     """
     Load a match Excel file, cross-reference the player database, and return
     a DataFrame ready for match_predictor.py.
@@ -131,7 +131,7 @@ def build_match_squads(match_filename: str) -> pd.DataFrame:
     pd.DataFrame
         Columns: country, name, position_group, skill, starting, shirt_number.
     """
-    match_path = match_file_path(match_filename)
+    match_path = match_file_path(match_filename, season=season)
     home, away = get_teams_from_filename(match_filename)
 
     print(f"Teams detected: {home} (home) vs {away} (away)")
@@ -247,18 +247,19 @@ def validate_and_save(df: pd.DataFrame, output_file: str) -> None:
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-def process_match_file(match_filename: str = DEFAULT_MATCH_FILE) -> None:
+def process_match_file(match_filename: str = DEFAULT_MATCH_FILE, season: str = None) -> None:
     output_file = os.path.join(OUTPUT_DIR, "match_ready_squads.csv")
 
     print(f"Loading player database: {DB_FILE}")
-    df = build_match_squads(match_filename)
+    df = build_match_squads(match_filename, season=season)
     validate_and_save(df, output_file)
 
 
 if __name__ == "__main__":
     filename = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MATCH_FILE
+    season   = sys.argv[2] if len(sys.argv) > 2 else None
     try:
-        process_match_file(filename)
+        process_match_file(filename, season=season)
     except (FileNotFoundError, KeyError, ValueError) as exc:
         print(f"ERROR: {exc}")
         sys.exit(1)
