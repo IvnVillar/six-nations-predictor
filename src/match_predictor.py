@@ -11,31 +11,13 @@ import sys
 import math
 import pandas as pd
 
-from config import DEFAULT_CONFIG, WR_ELO, OUTPUT_DIR
+from config import DEFAULT_CONFIG, WR_ELO_CURRENT, get_elo, OUTPUT_DIR
 from squad_builder import get_teams_from_filename
 
 
 # ── Tactical calculation helpers ───────────────────────────────────────────────
 
 def _unit_average(players: pd.DataFrame, unit: str, params: dict) -> float:
-    """
-    Return the average skill for a tactical unit within a player subset.
-
-    Parameters
-    ----------
-    players : pd.DataFrame
-        Already filtered to the relevant group (starters or bench).
-    unit : str
-        One of 'Pack', 'Control', 'Strike'.
-    params : dict
-        Model configuration.
-
-    Notes
-    -----
-    - Pack    → all Forwards
-    - Control → shirt numbers 9-10; falls back to all Backs if none present
-    - Strike  → Backs excluding shirt numbers 9-10
-    """
     if players.empty:
         return 70.0
 
@@ -61,7 +43,6 @@ def _unit_average(players: pd.DataFrame, unit: str, params: dict) -> float:
 
 
 def _tactical_score(group: pd.DataFrame, params: dict) -> float:
-    """Compute the weighted tactical score for one group (starters or bench)."""
     return (
         _unit_average(group, "Pack",    params) * params["WEIGHT_PACK"]    +
         _unit_average(group, "Control", params) * params["WEIGHT_CONTROL"] +
@@ -70,11 +51,6 @@ def _tactical_score(group: pd.DataFrame, params: dict) -> float:
 
 
 def get_tactical_metrics(df: pd.DataFrame, country: str, params: dict) -> dict | None:
-    """
-    Compute the combined tactical score and pack breakdown for one team.
-
-    Returns None if the country is missing from the DataFrame.
-    """
     squad = df[df["country"] == country]
     if squad.empty:
         return None
@@ -90,24 +66,14 @@ def get_tactical_metrics(df: pd.DataFrame, country: str, params: dict) -> dict |
         score_bench * params["WEIGHT_BENCH"]
     )
 
-    pack_xv    = _unit_average(starters, "Pack", params)
-    pack_bench = _unit_average(bench,    "Pack", params)
-
     return {
         "total_score": total,
-        "pack_xv":     pack_xv,
-        "pack_bench":  pack_bench,
+        "pack_xv":     _unit_average(starters, "Pack", params),
+        "pack_bench":  _unit_average(bench,    "Pack", params),
     }
 
 
 def _mismatch_bonus(pack_diff: float, params: dict) -> float:
-    """
-    Return a continuous physical-mismatch bonus (positive favours home).
-
-    Below MISMATCH_THRESHOLD  → no bonus.
-    Between threshold and max → linear ramp up to MISMATCH_BONUS.
-    Above max                 → capped at MISMATCH_BONUS.
-    """
     threshold = params["MISMATCH_THRESHOLD"]
     max_diff  = params["MISMATCH_MAX_DIFF"]
     max_bonus = params["MISMATCH_BONUS"]
@@ -128,6 +94,7 @@ def simulate_match(
     away: str,
     df: pd.DataFrame,
     params: dict | None = None,
+    season: str | None = None,
 ) -> dict:
     """
     Simulate a match and return a prediction dict.
@@ -135,20 +102,19 @@ def simulate_match(
     Parameters
     ----------
     home, away : str
-        Team names (must match values in df['country'] and WR_ELO keys).
+        Team names.
     df : pd.DataFrame
-        match_ready_squads DataFrame (from squad_builder).
+        match_ready_squads DataFrame.
     params : dict, optional
-        Model config. Defaults to DEFAULT_CONFIG if not provided.
-
-    Returns
-    -------
-    dict
-        Keys: home, away, margin, prob, debug.
-        On error: {"error": "<message>"}.
+        Model config. Defaults to DEFAULT_CONFIG.
+    season : str, optional
+        Season year (e.g. '2024'). Used to pick the correct ELO ratings.
+        Defaults to the current season.
     """
     if params is None:
         params = DEFAULT_CONFIG
+
+    elo_ratings = get_elo(season)
 
     h = get_tactical_metrics(df, home, params)
     a = get_tactical_metrics(df, away, params)
@@ -160,21 +126,15 @@ def simulate_match(
     # Tactical margin
     margin_tactical = (h["total_score"] - a["total_score"]) * params["TACTICAL_SCALING_FACTOR"]
 
-    # Physical mismatch (continuous)
-    pack_home = (
-        h["pack_xv"]    * params["PACK_STARTER_WEIGHT"] +
-        h["pack_bench"] * params["PACK_BENCH_WEIGHT"]
-    )
-    pack_away = (
-        a["pack_xv"]    * params["PACK_STARTER_WEIGHT"] +
-        a["pack_bench"] * params["PACK_BENCH_WEIGHT"]
-    )
+    # Physical mismatch
+    pack_home = h["pack_xv"] * params["PACK_STARTER_WEIGHT"] + h["pack_bench"] * params["PACK_BENCH_WEIGHT"]
+    pack_away = a["pack_xv"] * params["PACK_STARTER_WEIGHT"] + a["pack_bench"] * params["PACK_BENCH_WEIGHT"]
     pack_diff = pack_home - pack_away
     margin_tactical += _mismatch_bonus(pack_diff, params)
 
-    # ELO margin
-    elo_h = WR_ELO.get(home, 75.0)
-    elo_a = WR_ELO.get(away, 75.0)
+    # ELO margin — uses season-specific ratings
+    elo_h = elo_ratings.get(home, 75.0)
+    elo_a = elo_ratings.get(away, 75.0)
     margin_elo = (elo_h - elo_a) * params["ELO_SCALING"]
 
     # Hybrid fusion
@@ -184,7 +144,6 @@ def simulate_match(
         params["HOME_ADVANTAGE"]
     )
 
-    # Win probability via normal CDF
     z = final_margin / params["STD_DEV"]
     prob_home = 0.5 * (1 + math.erf(z / math.sqrt(2)))
 
@@ -202,7 +161,6 @@ def simulate_match(
 
 
 def print_result(res: dict, params: dict) -> None:
-    """Pretty-print one match prediction."""
     home, away = res["home"], res["away"]
     winner = home if res["margin"] > 0 else away
     prob   = res["prob"] if res["margin"] > 0 else 1 - res["prob"]
@@ -238,8 +196,6 @@ if __name__ == "__main__":
 
     print("\nSIX NATIONS MATCH PREDICTION\n" + "=" * 60)
 
-    # Determine home/away order from the source filename when passed as argument,
-    # otherwise fall back to the order of the CSV (first team in file = home).
     if len(sys.argv) > 1:
         try:
             home, away = get_teams_from_filename(sys.argv[1])
@@ -251,8 +207,6 @@ if __name__ == "__main__":
         if len(teams) != 2:
             print(f"ERROR: Expected 2 teams in CSV, found {len(teams)}: {teams}")
             sys.exit(1)
-        # Use the filename-based convention: first alphabetically is NOT reliable,
-        # so we warn the user.
         home, away = teams[0], teams[1]
         print(
             f"WARNING: Home/away order inferred from CSV row order ({home} = home). "
